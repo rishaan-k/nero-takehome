@@ -1,3 +1,140 @@
+/* Import Nero fonts */
+@import url('https://fonts.cdnfonts.com/css/aileron');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400;1,8..60,500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Nero Design System - CSS Custom Properties */
+:root {
+  /* Colors - Dark Mode (Primary) */
+  --bg: #141414;
+  --bg-surface: #1c1c1c;
+  --bg-elevated: #222222;
+  --bg-nav: #1e1e1e;
+  --border: #2e2e2e;
+  --border-strong: #333333;
+  --text-primary: #f0f0f0;
+  --text-secondary: #888888;
+  --text-tertiary: #555555;
+  --accent-green: #22c55e;
+  --accent-green-bg: #166534;
+  --accent-green-text: #86efac;
+  --accent-red: #e11d48;
+  --accent-red-bg: rgba(127, 29, 29, 0.4);
+  --accent-red-text: #fca5a5;
+  --skip-badge-bg: #1c1917;
+  --skip-badge-text: #a8a29e;
+
+  /* Typography */
+  --font-sans: 'Aileron', 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: 'Source Serif 4', Georgia, serif;
+
+  /* Border Radius */
+  --radius-pill: 9999px;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+
+  /* Spacing - Base 4/8 System */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* Layout */
+  --content-width: 760px;
+  --nav-height: 52px;
+
+  /* Transitions */
+  --transition-fast: 0.2s ease;
+  --transition-medium: 0.4s ease;
+}
+
+/* Light Mode Variables */
+[data-theme="light"] {
+  --bg: #f5f5f5;
+  --bg-surface: #ffffff;
+  --bg-elevated: #eeeeee;
+  --bg-nav: #e8e8e8;
+  --border: #e0e0e0;
+  --border-strong: #cccccc;
+  --text-primary: #111111;
+  --text-secondary: #666666;
+  --text-tertiary: #aaaaaa;
+  --accent-red-bg: #fff1f2;
+  --accent-red-text: #be123c;
+}
+
+/* Global Styles */
+html {
+  background-color: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* Equalizer Animation */
+@keyframes bar-bounce {
+  0%, 100% {
+    height: 4px;
+  }
+  50% {
+    height: 16px;
+  }
+}
+
+.equalizer-bar {
+  background-color: var(--accent-green);
+  width: 3px;
+  height: 4px;
+  margin: 0 1px;
+  border-radius: 1px;
+  animation: bar-bounce 1s ease-in-out infinite;
+}
+
+.equalizer-bar:nth-child(1) { animation-delay: 0s; }
+.equalizer-bar:nth-child(2) { animation-delay: 0.2s; }
+.equalizer-bar:nth-child(3) { animation-delay: 0.4s; }
+.equalizer-bar:nth-child(4) { animation-delay: 0.1s; }
+
+/* Form Focus States */
+input:focus,
+button:focus {
+  outline: 2px solid var(--accent-green);
+  outline-offset: 2px;
+}
+
+/* Transitions */
+* {
+  transition: background-color var(--transition-fast), 
+              color var(--transition-fast),
+              border-color var(--transition-fast);
+}
+
+/* Sonner Toast Overrides */
+[data-sonner-toaster] {
+  font-family: var(--font-sans);
+}
+
+[data-sonner-toast] {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+[data-sonner-toast][data-type="error"] {
+  background-color: var(--accent-red-bg);
+  border-color: var(--accent-red);
+  color: var(--accent-red-text);
+}
