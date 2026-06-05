@@ -46,4 +46,42 @@ nero-party/
 - **Backend:** Express.js, Prisma, Socket.IO
 - **Frontend:** React, Vite, TailwindCSS
 - **Database:** SQLite (local)
-- **External API:** Music API of your choice (for song search and playback)
+- **External API:** Music API of your choice (for song search and playbook)
+
+## Setup Instructions for Nero Party
+
+### Quick Setup
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd nero-party
+
+# Install dependencies for both frontend and backend
+npm install
+
+# Copy environment file
+cp .env.example .env
+
+# Set up database
+cd backend && npx prisma migrate dev && cd ..
+
+# Start the application
+npm run dev
+```
+
+### What happens when you run `npm run dev`:
+- Backend server starts on `http://localhost:3000` 
+- Frontend development server starts on `http://localhost:5173`
+- Database is automatically created (SQLite file)
+- Both servers run concurrently with hot reloading
+
+### First Time Usage:
+1. Open `http://localhost:5173` in your browser
+2. Create a new party or join an existing one
+3. Add songs and start listening together!
+
+### Notes:
+- No external API setup required for basic functionality
+- Data persists locally in SQLite database
+- Multiple parties can run simultaneously
+- Real-time synchronization via WebSocket
