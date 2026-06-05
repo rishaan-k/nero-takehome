@@ -16,6 +16,7 @@ interface Song {
   artworkUrl: string;
   previewUrl: string;
   addedById: string;
+  addedByName: string;
   played: boolean;
   score: number;
   createdAt: string;

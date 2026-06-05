@@ -34,6 +34,7 @@ export async function getPartyState(joinCode: string) {
       songs: {
         include: {
           votes: true,
+          addedBy: true,
         },
       },
     },
@@ -70,6 +71,7 @@ export async function getPartyState(joinCode: string) {
       artworkUrl: song.artworkUrl,
       previewUrl: song.previewUrl,
       addedById: song.addedById,
+      addedByName: song.addedBy.name,
       played: song.played,
       score: song.score,
       createdAt: song.createdAt,

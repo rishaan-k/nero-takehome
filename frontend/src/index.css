@@ -10,11 +10,14 @@
 :root {
   /* Colors - Dark Mode (Primary) */
   --bg: #141414;
-  --bg-surface: #1c1c1c;
-  --bg-elevated: #222222;
+  --bg-surface: rgba(28, 28, 28, 0.8);
+  --bg-elevated: rgba(34, 34, 34, 0.9);
   --bg-nav: #1e1e1e;
+  --bg-modal: #191919;
   --border: #2e2e2e;
   --border-strong: #333333;
+  --border-highlight: rgba(255, 255, 255, 0.08);
+  --modal-scrim: rgba(0, 0, 0, 0.6);
   --text-primary: #f0f0f0;
   --text-secondary: #888888;
   --text-tertiary: #555555;
@@ -26,6 +29,13 @@
   --accent-red-text: #fca5a5;
   --skip-badge-bg: #1c1917;
   --skip-badge-text: #a8a29e;
+  
+  /* Glass and Button Theme Tokens */
+  --glass-bg: rgba(28, 28, 28, 0.6);
+  --btn-primary-bg: #ffffff;
+  --btn-primary-text: #111111;
+  --btn-secondary-bg: var(--bg-elevated);
+  --btn-secondary-text: var(--text-primary);
 
   /* Typography */
   --font-sans: 'Aileron', 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -54,6 +64,14 @@
   /* Transitions */
   --transition-fast: 0.2s ease;
   --transition-medium: 0.4s ease;
+  
+  /* Wave Background */
+  --wave-primary: rgba(240, 240, 240, 0.25);
+  --wave-secondary: rgba(240, 240, 240, 0.22);
+  --wave-tertiary: rgba(240, 240, 240, 0.18);
+  --wave-quaternary: rgba(240, 240, 240, 0.15);
+  --wave-light-1: rgba(240, 240, 240, 0.12);
+  --wave-light-2: rgba(240, 240, 240, 0.10);
 }
 
 /* Light Mode Variables */
@@ -62,13 +80,35 @@
   --bg-surface: #ffffff;
   --bg-elevated: #eeeeee;
   --bg-nav: #e8e8e8;
+  --bg-modal: #ffffff;
   --border: #e0e0e0;
   --border-strong: #cccccc;
+  --border-highlight: rgba(0, 0, 0, 0.08);
+  --modal-scrim: rgba(0, 0, 0, 0.4);
   --text-primary: #111111;
   --text-secondary: #666666;
   --text-tertiary: #aaaaaa;
+  --accent-green-bg: #dcfce7;
+  --accent-green-text: #166534;
   --accent-red-bg: #fff1f2;
   --accent-red-text: #be123c;
+  --skip-badge-bg: #f5f5f4;
+  --skip-badge-text: #57534e;
+  
+  /* Glass and Button Theme Tokens */
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --btn-primary-bg: #111111;
+  --btn-primary-text: #ffffff;
+  --btn-secondary-bg: var(--bg-elevated);
+  --btn-secondary-text: var(--text-primary);
+  
+  /* Wave Background */
+  --wave-primary: rgba(20, 20, 20, 0.25);
+  --wave-secondary: rgba(20, 20, 20, 0.22);
+  --wave-tertiary: rgba(20, 20, 20, 0.18);
+  --wave-quaternary: rgba(20, 20, 20, 0.15);
+  --wave-light-1: rgba(20, 20, 20, 0.12);
+  --wave-light-2: rgba(20, 20, 20, 0.10);
 }
 
 /* Global Styles */
@@ -76,6 +116,7 @@ html {
   background-color: var(--bg);
   color: var(--text-primary);
   font-family: var(--font-sans);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 body {
@@ -137,4 +178,98 @@ button:focus {
   background-color: var(--accent-red-bg);
   border-color: var(--accent-red);
   color: var(--accent-red-text);
+}
+
+/* Glassmorphism Panel Style */
+.glass-panel {
+  /* Theme-aware semi-transparent background */
+  background: var(--glass-bg);
+  
+  /* Backdrop blur with saturation for glass effect */
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  
+  /* Hairline border with subtle top highlight for glass rim */
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 0 var(--border-highlight);
+}
+
+/* Modal Animations */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes zoom-in-95 {
+  from { transform: scale(0.95); }
+  to { transform: scale(1); }
+}
+
+.animate-in {
+  animation-fill-mode: both;
+}
+
+.fade-in {
+  animation-name: fade-in;
+}
+
+.zoom-in-95 {
+  animation-name: zoom-in-95;
+}
+
+.duration-200 {
+  animation-duration: 200ms;
+}
+
+/* Entrance Animations */
+@keyframes entrance {
+  0% {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-entrance-1 {
+  animation: entrance 0.4s ease forwards;
+  animation-delay: 0ms;
+}
+
+.animate-entrance-2 {
+  animation: entrance 0.4s ease forwards;
+  animation-delay: 60ms;
+}
+
+.animate-entrance-3 {
+  animation: entrance 0.4s ease forwards;
+  animation-delay: 120ms;
+}
+
+.animate-entrance-4 {
+  animation: entrance 0.4s ease forwards;
+  animation-delay: 180ms;
+}
+
+.animate-entrance-5 {
+  animation: entrance 0.4s ease forwards;
+  animation-delay: 240ms;
+}
+
+.animate-entrance-6 {
+  animation: entrance 0.4s ease forwards;
+  animation-delay: 300ms;
+}
+
+/* Set initial state for entrance animations */
+.animate-entrance-1,
+.animate-entrance-2,
+.animate-entrance-3,
+.animate-entrance-4,
+.animate-entrance-5,
+.animate-entrance-6 {
+  opacity: 0;
+  transform: translateY(16px);
 }

@@ -1,5 +1,9 @@
 interface Vote {
+  id: string;
+  songId: string;
+  participantId: string;
   value: number;
+  createdAt: Date;
 }
 
 interface Song {

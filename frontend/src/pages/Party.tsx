@@ -1,21 +1,31 @@
-import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { Copy, ThumbsUp, ThumbsDown, Play, Search, Users, SkipForward, Square } from 'lucide-react';
-import { toast } from 'sonner';
+import { useState, useEffect, useMemo } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { ThumbsUp, ThumbsDown, Play, Search, Users, SkipForward, Square, ArrowLeft, Share2, ChevronDown } from 'lucide-react';
 import { useParty } from '../hooks/useParty';
-import { getIdentity, saveIdentity, clearIdentity } from '../lib/identity';
+import { useAudio } from '../hooks/useAudio';
+import { getIdentity, saveIdentity, clearIdentity, updatePartyName } from '../lib/identity';
 import { searchSongs } from '../lib/api';
 import { Equalizer } from '../components/Equalizer';
 import { ProgressBar } from '../components/ProgressBar';
+import { TapToListen } from '../components/TapToListen';
+import { AudioControls } from '../components/AudioControls';
+import { ShareModal } from '../components/ShareModal';
+import { IconButton } from '../components/IconButton';
+import { NeroLogo } from '../components/NeroLogo';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 export function Party() {
   const { joinCode } = useParams<{ joinCode: string }>();
+  const navigate = useNavigate();
   const [nameInput, setNameInput] = useState('');
   const [showNameGate, setShowNameGate] = useState(false);
   const [joining, setJoining] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [isRejoining, setIsRejoining] = useState(false);
+  const [sortBy, setSortBy] = useState<'order' | 'votes'>('order');
 
   if (!joinCode) {
     return <div>Invalid party URL</div>;
@@ -36,6 +46,43 @@ export function Party() {
     winner,
   } = useParty(joinCode);
 
+  // Get current song - must be declared before useAudio hook
+  const currentSong = party?.currentSongId ? party.songs?.find(s => s.id === party.currentSongId) : null;
+  
+  // Get host participant for title display
+  const hostParticipant = party?.participants?.find(p => p.id === party.hostId);
+
+  // Audio management - must be called before any conditional returns
+  const {
+    audioRef,
+    hasUserInteracted,
+    isPlaying,
+    isMuted,
+    volume,
+    handleUserInteraction,
+    toggleMute,
+    setVolumeLevel,
+  } = useAudio({
+    currentSongId: party?.currentSongId || null,
+    currentStartedAt: party?.currentStartedAt || null,
+    previewUrl: currentSong?.previewUrl || null,
+    isActive: party?.status === 'active' && !!party?.songs?.find(s => s.id === party?.currentSongId),
+  });
+
+  // Sort songs based on selected filter - must be called before any conditional returns
+  const sortedSongs = useMemo(() => {
+    if (!party?.songs) return [];
+    
+    if (sortBy === 'votes') {
+      return [...party.songs].sort((a, b) => b.score - a.score); // Highest score first
+    } else {
+      // Sort by creation date (order added) - use createdAt field
+      return [...party.songs].sort((a, b) => {
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
+    }
+  }, [party?.songs, sortBy]);
+
   // Handle join gate logic
   useEffect(() => {
     if (!connected) return;
@@ -45,22 +92,35 @@ export function Party() {
       
       if (identity) {
         // Try to rejoin with existing identity
+        setIsRejoining(true);
         const result = await rejoin(identity.participantId);
         
         if (result.error) {
           // Rejoin failed, clear identity and show name gate
           clearIdentity(joinCode);
           setShowNameGate(true);
+          setIsRejoining(false);
+          // Show share modal for new join after failed rejoin
+          setShowShareModal(true);
         }
-        // If rejoin succeeded, we're good to go
+        // If rejoin succeeded, we're good to go (no share modal)
       } else {
         // No identity, show name gate
         setShowNameGate(true);
+        setIsRejoining(false);
+        // Will show share modal after successful new join
       }
     };
 
     handleJoinGate();
   }, [connected, joinCode, rejoin]);
+
+  // Update party name when party state loads
+  useEffect(() => {
+    if (party?.name && joinCode) {
+      updatePartyName(joinCode, party.name);
+    }
+  }, [party?.name, joinCode]);
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +134,11 @@ export function Party() {
         name: nameInput.trim(),
       });
       setShowNameGate(false);
+      
+      // Show share modal only for new joins (not rejoins)
+      if (!isRejoining) {
+        setShowShareModal(true);
+      }
     } catch (err) {
       console.error('Failed to join party:', err);
     } finally {
@@ -111,27 +176,15 @@ export function Party() {
     return songVotes.find(v => v.participantId === myParticipantId)?.value || 0;
   };
 
-  const getShareableLink = () => {
-    return `${window.location.origin}/party/${joinCode}`;
-  };
-
-  const copyJoinCode = () => {
-    if (joinCode) {
-      navigator.clipboard.writeText(joinCode);
-      toast.success('Join code copied!');
-    }
-  };
-
-  const copyShareableLink = () => {
-    navigator.clipboard.writeText(getShareableLink());
-    toast.success('Link copied!');
+  const handleLeaveParty = () => {
+    navigate('/');
   };
 
   // Show name gate if not joined yet
   if (showNameGate || !myParticipantId) {
     return (
       <div className="min-h-screen bg-bg flex items-center justify-center">
-        <div className="max-w-md mx-auto bg-bg-surface border border-border rounded-lg p-8">
+        <div className="max-w-md mx-auto glass-panel rounded-lg p-8">
           <div className="text-center mb-6">
             <h1 className="text-xl font-medium text-text-primary mb-2">Join Party</h1>
             <p className="text-sm text-text-secondary">Enter your name to join the listening party</p>
@@ -157,7 +210,12 @@ export function Party() {
             <button 
               type="submit" 
               disabled={joining || !nameInput.trim()}
-              className="w-full bg-white text-black rounded-pill px-6 py-3 text-md font-medium hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
+              className="w-full px-6 py-3 text-md font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
+              style={{
+                borderRadius: '9999px',
+                backgroundColor: 'var(--btn-primary-bg)',
+                color: 'var(--btn-primary-text)'
+              }}
             >
               {joining ? 'Joining...' : 'Join Party'}
             </button>
@@ -187,67 +245,60 @@ export function Party() {
     );
   }
 
-  const currentSong = party.currentSongId ? party.songs.find(s => s.id === party.currentSongId) : null;
-  const winnerSong = winner ? party.songs.find(s => s.id === winner) : null;
+  const winnerSong = winner ? party?.songs.find(s => s.id === winner) : null;
 
   return (
     <div className="min-h-screen bg-bg">
-      <div className="max-w-content mx-auto px-6 py-6">
+      <div className="max-w-[1100px] mx-auto px-6 py-6">
         {/* Header */}
         <div className="mb-8">
+          <div className="flex items-center justify-center mb-4">
+            <Link to="/" className="text-text-primary hover:text-accent-green transition-colors duration-fast">
+              <NeroLogo className="h-6 w-auto" />
+            </Link>
+          </div>
           <div className="flex items-center justify-between mb-2">
-            <h1 className="text-2xl font-medium text-text-primary">{party.name}</h1>
-            {party.status !== 'ended' && (
-              <div className="flex items-center gap-2 text-sm text-text-secondary">
-                <Users className="w-4 h-4" />
-                {party.participants.filter(p => p.online).length}/{party.participants.length}
-              </div>
-            )}
+            <div className="flex items-center gap-4">
+              <IconButton
+                icon={ArrowLeft}
+                tooltip="leave"
+                onClick={handleLeaveParty}
+              />
+              <h1 className="text-2xl font-medium">
+                <span className="text-text-primary">{party.name}</span>
+                {hostParticipant && (
+                  <>
+                    <span className="text-text-secondary"> by </span>
+                    <span style={{ color: 'var(--accent-green)' }}>{hostParticipant.name}</span>
+                  </>
+                )}
+              </h1>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              {party.status !== 'ended' && (
+                <IconButton
+                  icon={Share2}
+                  tooltip="share"
+                  onClick={() => setShowShareModal(true)}
+                />
+              )}
+              {party.status !== 'ended' && (
+                <div className="flex items-center gap-2 text-sm text-text-secondary">
+                  <Users className="w-4 h-4" />
+                  {party.participants.filter(p => p.online).length}/{party.participants.length}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Lobby State */}
         {party.status === 'lobby' && (
           <div className="space-y-6">
-            {/* Join Code Section */}
-            <div className="bg-bg-surface border border-border rounded-lg p-6">
-              <h2 className="text-lg font-medium text-text-primary mb-4">Share this party</h2>
-              
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base text-text-secondary">Code:</span>
-                    <span className="bg-bg-elevated px-3 py-1 rounded-md text-md font-medium text-text-primary tracking-wider">
-                      {party.joinCode}
-                    </span>
-                  </div>
-                  <button
-                    onClick={copyJoinCode}
-                    className="p-1.5 text-text-secondary hover:text-text-primary transition-colors duration-fast"
-                    title="Copy join code"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 bg-bg-elevated border border-border rounded-sm px-3 py-2 text-sm text-text-secondary">
-                    {getShareableLink()}
-                  </div>
-                  <button
-                    onClick={copyShareableLink}
-                    className="p-1.5 text-text-secondary hover:text-text-primary transition-colors duration-fast"
-                    title="Copy link"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
             {/* Start Button for Host */}
             {isHost && (
-              <div className="text-center">
+              <div className="text-center mb-8">
                 <button
                   onClick={startParty}
                   disabled={party.songs.length === 0}
@@ -264,12 +315,25 @@ export function Party() {
           </div>
         )}
 
-        {/* Active State */}
+        {/* Active State - Top Section with consistent spacing */}
         {party.status === 'active' && (
-          <div className="space-y-6">
+          <div className="mb-8">
+            {/* Audio Element (hidden) */}
+            <audio
+              ref={audioRef}
+              preload="auto"
+            />
+
+            {/* Autoplay Gate */}
+            {party.status === 'active' && currentSong && !hasUserInteracted && (
+              <div className="mb-6">
+                <TapToListen onTap={handleUserInteraction} />
+              </div>
+            )}
+
             {/* Now Playing */}
-            {currentSong && (
-              <div className="bg-bg-surface border border-border rounded-lg p-6">
+            {currentSong && hasUserInteracted && (
+              <div className="glass-panel rounded-lg p-6 mb-6">
                 <div className="flex items-start gap-4">
                   <img 
                     src={currentSong.artworkUrl} 
@@ -278,14 +342,22 @@ export function Party() {
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <Equalizer isActive={true} />
+                      <Equalizer isActive={isPlaying} />
                       <span className="bg-accent-green-bg px-2 py-1 rounded-pill text-xs font-semibold text-accent-green-text uppercase">
                         Now Playing
                       </span>
                     </div>
                     <h3 className="text-md font-medium text-text-primary truncate">{currentSong.title}</h3>
                     <p className="text-sm text-text-secondary mb-3">{currentSong.artist}</p>
-                    <ProgressBar startedAt={party.currentStartedAt || null} className="max-w-xs" />
+                    <div className="flex items-center gap-4">
+                      <ProgressBar startedAt={party.currentStartedAt || null} className="max-w-xs" />
+                      <AudioControls
+                        isMuted={isMuted}
+                        volume={volume}
+                        onToggleMute={toggleMute}
+                        onVolumeChange={setVolumeLevel}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -293,7 +365,7 @@ export function Party() {
 
             {/* Host Controls */}
             {isHost && (
-              <div className="flex gap-3">
+              <div className="flex justify-center gap-4">
                 <button
                   onClick={nextSong}
                   className="flex items-center gap-2 px-4 py-2 bg-bg-surface border border-border rounded-pill text-sm text-text-primary hover:bg-bg-elevated transition-colors duration-fast"
@@ -317,7 +389,7 @@ export function Party() {
         {party.status === 'ended' && (
           <div className="text-center space-y-6">
             {winnerSong && (
-              <div className="bg-bg-surface border border-border rounded-lg p-8">
+              <div className="glass-panel rounded-lg p-8">
                 <div className="mb-4">
                   <span className="bg-accent-green-bg px-3 py-1.5 rounded-pill text-sm font-semibold text-accent-green-text uppercase">
                     Winner
@@ -332,6 +404,7 @@ export function Party() {
                   <div>
                     <h3 className="text-xl font-medium text-text-primary mb-1">{winnerSong.title}</h3>
                     <p className="text-md text-text-secondary mb-2">{winnerSong.artist}</p>
+                    <p className="text-sm text-text-secondary mb-1">submitted by {winnerSong.addedByName}</p>
                     <p className="text-sm text-accent-green font-medium">Score: {winnerSong.score}</p>
                   </div>
                 </div>
@@ -340,160 +413,207 @@ export function Party() {
           </div>
         )}
 
-        {/* Songs Queue (for lobby and active) */}
+        {/* Two-Column Layout (for lobby and active) */}
         {party.status !== 'ended' && (
-          <div className="space-y-6">
-            <div className="bg-bg-surface border border-border rounded-lg p-6">
-              <h3 className="text-lg font-medium text-text-primary mb-4">
-                Songs ({party.songs.length})
-                {party.maxSongs && ` / ${party.maxSongs}`}
-              </h3>
-              
-              {party.songs.length === 0 ? (
-                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
-                  <p className="text-text-secondary mb-2">No songs added yet</p>
-                  <p className="text-sm text-text-tertiary">Be the first to add a song to get the party started</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {party.songs.map((song) => {
-                    const userVote = getUserVote(song.votes);
-                    const isCurrentSong = song.id === party.currentSongId;
-                    
-                    return (
-                      <div 
-                        key={song.id}
-                        className={`bg-bg border border-border rounded-md p-4 ${isCurrentSong ? 'ring-1 ring-accent-green' : ''}`}
+          <div className="lg:grid lg:grid-cols-3 lg:gap-6 space-y-6 lg:space-y-0">
+            {/* LEFT COLUMN - Songs Queue (wider) */}
+            <div className="lg:col-span-2">
+              <div className="glass-panel rounded-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium text-text-primary">
+                    Songs ({party.songs.length})
+                    {party.maxSongs && ` / ${party.maxSongs}`}
+                  </h3>
+                  
+                  {party.songs.length > 0 && (
+                    <div className="relative">
+                      <select
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as 'order' | 'votes')}
+                        className="appearance-none bg-bg-surface border border-border rounded-pill pl-3 pr-8 py-2 text-sm text-text-primary hover:bg-bg-elevated transition-colors duration-fast focus:border-accent-green focus:outline-none cursor-pointer"
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="flex-shrink-0">
-                            <img 
-                              src={song.artworkUrl} 
-                              alt="Album art"
-                              className="w-12 h-12 rounded-md"
-                            />
-                          </div>
-                          
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              {isCurrentSong && <Equalizer size="sm" />}
-                              <h4 className="text-sm font-medium text-text-primary truncate">{song.title}</h4>
+                        <option value="order">Order Added</option>
+                        <option value="votes">By Votes</option>
+                      </select>
+                      <ChevronDown className="absolute right-2.5 top-1/2 transform -translate-y-1/2 w-3 h-3 text-text-tertiary pointer-events-none" />
+                    </div>
+                  )}
+                </div>
+                
+                {party.songs.length === 0 ? (
+                  <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
+                    <p className="text-text-secondary mb-2">No songs added yet</p>
+                    <p className="text-sm text-text-tertiary">Be the first to add a song to get the party started</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {sortedSongs.map((song) => {
+                      const userVote = getUserVote(song.votes);
+                      const isCurrentSong = song.id === party.currentSongId;
+                      
+                      return (
+                        <div 
+                          key={song.id}
+                          className={`bg-bg rounded-md p-4 ${
+                            isCurrentSong 
+                              ? 'border-[1.5px]' 
+                              : 'border border-border'
+                          }`}
+                          style={isCurrentSong ? { borderColor: 'var(--accent-green)' } : {}}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex-shrink-0">
+                              <img 
+                                src={song.artworkUrl} 
+                                alt="Album art"
+                                className="w-12 h-12 rounded-md"
+                              />
                             </div>
-                            <p className="text-xs text-text-secondary">{song.artist}</p>
-                          </div>
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                {isCurrentSong && <Equalizer size="sm" isActive={isPlaying} />}
+                                <h4 className="text-sm font-medium text-text-primary truncate">{song.title}</h4>
+                              </div>
+                              <p className="text-xs text-text-secondary">{song.artist}</p>
+                            </div>
 
-                          <div className="flex items-center gap-1">
-                            <span className="text-sm font-medium text-text-primary w-8 text-center">
-                              {song.score > 0 ? '+' : ''}{song.score}
-                            </span>
-                            
-                            <button
-                              onClick={() => handleVote(song.id, 1)}
-                              className={`p-1.5 rounded-md transition-colors duration-fast ${
-                                userVote === 1 
-                                  ? 'bg-accent-green-bg text-accent-green-text' 
-                                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'
-                              }`}
-                            >
-                              <ThumbsUp className="w-4 h-4" />
-                            </button>
-                            
-                            <button
-                              onClick={() => handleVote(song.id, -1)}
-                              className={`p-1.5 rounded-md transition-colors duration-fast ${
-                                userVote === -1 
-                                  ? 'bg-accent-red-bg text-accent-red-text' 
-                                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'
-                              }`}
-                            >
-                              <ThumbsDown className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <span className="text-sm font-medium text-text-primary w-8 text-center">
+                                {song.score > 0 ? '+' : ''}{song.score}
+                              </span>
+                              
+                              <button
+                                onClick={() => handleVote(song.id, 1)}
+                                className={`p-1.5 rounded-md transition-colors duration-fast ${
+                                  userVote === 1 
+                                    ? 'bg-accent-green-bg text-accent-green-text' 
+                                    : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'
+                                }`}
+                              >
+                                <ThumbsUp className="w-4 h-4" />
+                              </button>
+                              
+                              <button
+                                onClick={() => handleVote(song.id, -1)}
+                                className={`p-1.5 rounded-md transition-colors duration-fast ${
+                                  userVote === -1 
+                                    ? 'bg-accent-red-bg text-accent-red-text' 
+                                    : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'
+                                }`}
+                              >
+                                <ThumbsDown className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN - Participants and Add Songs (narrower) */}
+            <div className="space-y-6">
+              {/* Participants */}
+              <div className="glass-panel rounded-lg p-6">
+                <h3 className="text-lg font-medium text-text-primary mb-4">
+                  Participants ({party.participants.length})
+                </h3>
+                
+                <div className="space-y-2">
+                  {party.participants.map(participant => {
+                    const isHost = participant.id === party.hostId;
+                    const isCurrentUser = participant.id === myParticipantId;
+                    
+                    return (
+                      <div key={participant.id} className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${participant.online ? 'bg-accent-green' : 'bg-text-tertiary'}`} />
+                        <span 
+                          className="text-sm"
+                          style={{ 
+                            color: isHost ? 'var(--accent-green)' : 'var(--text-primary)' 
+                          }}
+                        >
+                          {participant.name}
+                        </span>
+                        {isCurrentUser && (
+                          <span className="text-xs text-text-secondary">(you)</span>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-              )}
-            </div>
+              </div>
 
-            {/* Add Songs */}
-            <div className="bg-bg-surface border border-border rounded-lg p-6">
-              <h3 className="text-lg font-medium text-text-primary mb-4">Add Songs</h3>
-              
-              <form onSubmit={handleSearchSongs} className="mb-4">
-                <div className="flex gap-2">
-                  <div className="flex-1 relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-tertiary w-4 h-4" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search for songs..."
-                      className="w-full bg-bg border border-border rounded-sm pl-10 pr-3 py-3 text-base text-text-primary placeholder:text-text-tertiary focus:border-accent-green focus:outline-none"
-                      required
-                    />
-                  </div>
-                  <button 
-                    type="submit" 
-                    disabled={searching || !searchQuery.trim()}
-                    className="px-6 py-3 bg-white text-black rounded-sm text-base font-medium hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
-                  >
-                    {searching ? 'Searching...' : 'Search'}
-                  </button>
-                </div>
-              </form>
-
-              {searchResults.length > 0 && (
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {searchResults.map((song, index) => (
-                    <div 
-                      key={index}
-                      className="bg-bg border border-border rounded-md p-3 flex items-center gap-3"
-                    >
-                      <img 
-                        src={song.artworkUrl} 
-                        alt="Album art"
-                        className="w-10 h-10 rounded-md"
+              {/* Add Songs */}
+              <div className="glass-panel rounded-lg p-6">
+                <h3 className="text-lg font-medium text-text-primary mb-4">Add Songs</h3>
+                
+                <form onSubmit={handleSearchSongs} className="mb-4">
+                  <div className="flex gap-2">
+                    <div className="flex-1 relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-tertiary w-4 h-4" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search for songs..."
+                        className="w-full bg-bg border border-border rounded-sm pl-10 pr-3 py-3 text-base text-text-primary placeholder:text-text-tertiary focus:border-accent-green focus:outline-none"
+                        required
                       />
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-medium text-text-primary truncate">{song.title}</h4>
-                        <p className="text-xs text-text-secondary truncate">{song.artist}</p>
-                      </div>
-                      <button
-                        onClick={() => handleAddSong(song)}
-                        className="px-3 py-1.5 bg-accent-green text-white rounded-pill text-xs font-medium hover:bg-green-600 transition-colors duration-fast"
-                      >
-                        Add
-                      </button>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <button 
+                      type="submit" 
+                      disabled={searching || !searchQuery.trim()}
+                      className="px-4 py-3 bg-accent-green text-white rounded-sm text-sm font-medium hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
+                    >
+                      {searching ? 'Searching...' : 'Search'}
+                    </button>
+                  </div>
+                </form>
+
+                {searchResults.length > 0 && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {searchResults.map((song, index) => (
+                      <div 
+                        key={index}
+                        className="bg-bg border border-border rounded-md p-3 flex items-center gap-3"
+                      >
+                        <img 
+                          src={song.artworkUrl} 
+                          alt="Album art"
+                          className="w-10 h-10 rounded-md"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-medium text-text-primary truncate">{song.title}</h4>
+                          <p className="text-xs text-text-secondary truncate">{song.artist}</p>
+                        </div>
+                        <button
+                          onClick={() => handleAddSong(song)}
+                          className="px-3 py-1.5 bg-accent-green text-white rounded-pill text-xs font-medium hover:bg-green-600 transition-colors duration-fast"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Participants */}
-        <div className="bg-bg-surface border border-border rounded-lg p-6">
-          <h3 className="text-lg font-medium text-text-primary mb-4">
-            Participants ({party.participants.length})
-          </h3>
-          
-          <div className="space-y-2">
-            {party.participants.map(participant => (
-              <div key={participant.id} className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full ${participant.online ? 'bg-accent-green' : 'bg-text-tertiary'}`} />
-                <span className="text-sm text-text-primary">{participant.name}</span>
-                {participant.id === party.hostId && (
-                  <span className="bg-skip-badge-bg px-2 py-0.5 rounded-pill text-xs font-semibold text-skip-badge-text uppercase">
-                    Host
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* Share Modal */}
+        <ShareModal
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          joinCode={party.joinCode}
+        />
+
+        {/* Theme Toggle */}
+        <ThemeToggle />
       </div>
     </div>
   );

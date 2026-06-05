@@ -1,44 +1,42 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { createParty } from '../lib/api';
-import { saveIdentity } from '../lib/identity';
+import { saveIdentity, getLastJoinedParty } from '../lib/identity';
+import { NeroLogo } from '../components/NeroLogo';
+import { CreatePartyModal } from '../components/CreatePartyModal';
+import { JoinPartyModal } from '../components/JoinPartyModal';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 export function Landing() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [lastParty, setLastParty] = useState<{ joinCode: string; partyName: string } | null>(null);
 
-  // Create party form state
-  const [createForm, setCreateForm] = useState({
-    name: '',
-    hostName: '',
-    maxSongs: '',
-    maxDuration: '',
-  });
+  // Load last joined party on mount
+  useEffect(() => {
+    const lastJoined = getLastJoinedParty();
+    setLastParty(lastJoined);
+  }, []);
 
-  // Join party form state
-  const [joinCode, setJoinCode] = useState('');
-
-  const handleCreateParty = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!createForm.name.trim() || !createForm.hostName.trim()) return;
-
+  const handleCreateParty = async (data: {
+    name: string;
+    hostName: string;
+    maxSongs?: number;
+    maxDuration?: number;
+  }) => {
     setLoading(true);
 
     try {
-      const data = {
-        name: createForm.name.trim(),
-        hostName: createForm.hostName.trim(),
-        ...(createForm.maxSongs && { maxSongs: parseInt(createForm.maxSongs, 10) }),
-        ...(createForm.maxDuration && { maxDuration: parseInt(createForm.maxDuration, 10) }),
-      };
-
       const response = await createParty(data);
       
       // Save identity for this party
       saveIdentity(response.joinCode, {
         participantId: response.participantId,
-        name: createForm.hostName.trim(),
+        name: data.hostName,
+        partyName: data.name,
       });
 
       toast.success('Party created successfully!');
@@ -52,141 +50,121 @@ export function Landing() {
     }
   };
 
-  const handleJoinParty = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!joinCode.trim()) return;
-
-    navigate(`/party/${joinCode.trim().toUpperCase()}`);
+  const handleJoinParty = (joinCode: string) => {
+    // Navigate to party page - the join flow happens there
+    navigate(`/party/${joinCode}`);
   };
 
   return (
-    <div className="min-h-screen bg-bg">
-      <div className="max-w-content mx-auto px-6 py-12">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-3xl font-medium text-text-primary mb-3">
-            nero party
+    <div className="min-h-screen bg-bg relative">
+      {/* Header Section */}
+      <div className="pt-12 pb-8 px-6">
+        <div className="max-w-content mx-auto text-center">
+          <div className="flex justify-center mb-4 animate-entrance-1">
+            <Link to="/" className="text-text-primary hover:text-accent-green transition-colors duration-fast">
+              <NeroLogo className="h-7 w-auto" />
+            </Link>
+          </div>
+          <h1 className="text-3xl font-medium text-text-primary mb-3 animate-entrance-2">
+            <div className="inline-flex items-center gap-3 flex-wrap justify-center">
+              <span>welcome to</span>
+              <span 
+                className="inline-block bg-white text-black px-6 py-2 transition-all duration-200 ease-out hover:scale-[1.04] hover:shadow-lg cursor-default"
+                style={{ borderRadius: '9999px' }}
+              >
+                nero party
+              </span>
+            </div>
           </h1>
-          <p className="text-md text-text-secondary">
+          <p className="text-md text-text-secondary animate-entrance-3">
             Create a listening party or join an existing one
           </p>
         </div>
+      </div>
 
-        <div className="grid md:grid-cols-2 gap-8 max-w-2xl mx-auto">
-          {/* Create Party */}
-          <div className="bg-bg-surface border border-border rounded-lg p-6">
-            <h2 className="text-lg font-medium text-text-primary mb-6">Create a Party</h2>
-            
-            <form onSubmit={handleCreateParty} className="space-y-4">
-              <div>
-                <label htmlFor="party-name" className="block text-base text-text-primary mb-2">
-                  Party Name
-                </label>
-                <input
-                  id="party-name"
-                  type="text"
-                  value={createForm.name}
-                  onChange={(e) => setCreateForm(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="Friday Night Vibes"
-                  className="w-full bg-bg border border-border rounded-sm px-3 py-3 text-base text-text-primary placeholder:text-text-tertiary focus:border-accent-green focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="host-name" className="block text-base text-text-primary mb-2">
-                  Your Name
-                </label>
-                <input
-                  id="host-name"
-                  type="text"
-                  value={createForm.hostName}
-                  onChange={(e) => setCreateForm(prev => ({ ...prev, hostName: e.target.value }))}
-                  placeholder="Alex"
-                  className="w-full bg-bg border border-border rounded-sm px-3 py-3 text-base text-text-primary placeholder:text-text-tertiary focus:border-accent-green focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="max-songs" className="block text-sm text-text-secondary mb-2">
-                    Max Songs
-                  </label>
-                  <input
-                    id="max-songs"
-                    type="number"
-                    min="1"
-                    value={createForm.maxSongs}
-                    onChange={(e) => setCreateForm(prev => ({ ...prev, maxSongs: e.target.value }))}
-                    placeholder="20"
-                    className="w-full bg-bg border border-border rounded-sm px-3 py-3 text-base text-text-primary placeholder:text-text-tertiary focus:border-accent-green focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="max-duration" className="block text-sm text-text-secondary mb-2">
-                    Max Duration (min)
-                  </label>
-                  <input
-                    id="max-duration"
-                    type="number"
-                    min="1"
-                    value={createForm.maxDuration}
-                    onChange={(e) => setCreateForm(prev => ({ ...prev, maxDuration: e.target.value }))}
-                    placeholder="60"
-                    className="w-full bg-bg border border-border rounded-sm px-3 py-3 text-base text-text-primary placeholder:text-text-tertiary focus:border-accent-green focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <button 
-                type="submit" 
-                disabled={loading || !createForm.name.trim() || !createForm.hostName.trim()}
-                className="w-full bg-white text-black rounded-pill px-6 py-3 text-md font-medium hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast mt-6"
+      {/* Main Content - Absolutely Centered Buttons */}
+      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full px-6">
+        <div className="max-w-sm mx-auto w-full">
+          {/* Rejoin Last Party */}
+          {lastParty && (
+            <div className="flex justify-center mb-8 animate-entrance-4">
+              <Link
+                to={`/party/${lastParty.joinCode}`}
+                className="text-sm px-4 py-2 transition-colors duration-fast"
+                style={{ 
+                  borderRadius: '9999px',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border)'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--accent-green)';
+                  e.currentTarget.style.borderColor = 'var(--border-strong)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-secondary)';
+                  e.currentTarget.style.borderColor = 'var(--border)';
+                }}
               >
-                {loading ? 'Creating...' : 'Create Party'}
-              </button>
-            </form>
-          </div>
+                Rejoin {lastParty.partyName}
+              </Link>
+            </div>
+          )}
 
-          {/* Join Party */}
-          <div className="bg-bg-surface border border-border rounded-lg p-6">
-            <h2 className="text-lg font-medium text-text-primary mb-6">Join a Party</h2>
+          {/* Action Buttons */}
+          <div className="flex flex-col items-center gap-4">
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="w-full px-8 py-4 text-md font-medium hover:opacity-90 hover:scale-[1.02] transition-all duration-[0.2s] ease-out shadow-sm animate-entrance-5"
+              style={{ 
+                borderRadius: '9999px',
+                backgroundColor: 'var(--btn-primary-bg)',
+                color: 'var(--btn-primary-text)'
+              }}
+            >
+              Create a Party
+            </button>
             
-            <form onSubmit={handleJoinParty} className="space-y-4">
-              <div>
-                <label htmlFor="join-code" className="block text-base text-text-primary mb-2">
-                  Join Code
-                </label>
-                <input
-                  id="join-code"
-                  type="text"
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value)}
-                  placeholder="ABC123"
-                  className="w-full bg-bg border border-border rounded-sm px-3 py-3 text-base text-text-primary placeholder:text-text-tertiary focus:border-accent-green focus:outline-none uppercase tracking-wider"
-                  required
-                />
-              </div>
-
-              <button 
-                type="submit" 
-                disabled={!joinCode.trim()}
-                className="w-full bg-white text-black rounded-pill px-6 py-3 text-md font-medium hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast mt-6"
-              >
-                Join Party
-              </button>
-            </form>
+            <button
+              onClick={() => setShowJoinModal(true)}
+              className="w-full px-8 py-4 text-md font-medium hover:opacity-80 hover:scale-[1.02] transition-all duration-[0.2s] ease-out animate-entrance-6"
+              style={{ 
+                borderRadius: '9999px',
+                backgroundColor: 'var(--btn-secondary-bg)',
+                color: 'var(--btn-secondary-text)'
+              }}
+            >
+              Join a Party
+            </button>
           </div>
         </div>
+      </div>
 
-        <div className="text-center mt-12">
+      {/* Footer Section */}
+      <div className="absolute bottom-0 left-0 right-0 pb-12 px-6">
+        <div className="text-center">
           <p className="text-sm text-text-tertiary">
-            A listening party where friends add songs, listen together, and crown a winning track
+            A listening party where friends add songs, listen together, and crown a winning track.
           </p>
         </div>
       </div>
+
+      {/* Modals */}
+      <CreatePartyModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSubmit={handleCreateParty}
+        loading={loading}
+      />
+
+      <JoinPartyModal
+        isOpen={showJoinModal}
+        onClose={() => setShowJoinModal(false)}
+        onSubmit={handleJoinParty}
+        loading={loading}
+      />
+
+      {/* Theme Toggle */}
+      <ThemeToggle />
     </div>
   );
 }

@@ -51,8 +51,23 @@ async function autoAdvanceSong(joinCode: string): Promise<void> {
     });
   }
 
-  // Get next unplayed song
-  const rankedSongs = rankSongs(party.songs);
+  // Re-fetch party with fresh songs state after marking current song as played
+  const freshParty = await prisma.party.findUnique({
+    where: { joinCode },
+    include: {
+      songs: {
+        include: { votes: true },
+      },
+    },
+  });
+
+  if (!freshParty || freshParty.status !== "active") {
+    clearTimer(joinCode);
+    return;
+  }
+
+  // Get next unplayed song from fresh state
+  const rankedSongs = rankSongs(freshParty.songs);
   const nextSong = rankedSongs.find(song => !song.played);
 
   if (nextSong) {
@@ -81,7 +96,7 @@ async function autoAdvanceSong(joinCode: string): Promise<void> {
   }
 
   // Broadcast updated party state
-  const io = global.socketIO;
+  const io = (global as any).socketIO;
   if (io) {
     const updatedState = await getPartyState(joinCode);
     if (updatedState) {
@@ -429,8 +444,23 @@ export function setupSocketHandlers(io: Server): void {
           });
         }
 
-        // Get next unplayed song
-        const rankedSongs = rankSongs(party.songs);
+        // Re-fetch party with fresh songs state after marking current song as played
+        const freshParty = await prisma.party.findUnique({
+          where: { joinCode },
+          include: {
+            songs: {
+              include: { votes: true },
+            },
+          },
+        });
+
+        if (!freshParty) {
+          socket.emit("error", { message: "Party not found after update" });
+          return;
+        }
+
+        // Get next unplayed song from fresh state
+        const rankedSongs = rankSongs(freshParty.songs);
         const nextSong = rankedSongs.find(song => !song.played);
 
         const updateData: any = {
