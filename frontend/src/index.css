@@ -136,11 +136,6 @@ body {
 }
 
 .equalizer-bar {
-  background-color: var(--accent-green);
-  width: 3px;
-  height: 4px;
-  margin: 0 1px;
-  border-radius: 1px;
   animation: bar-bounce 1s ease-in-out infinite;
 }
 

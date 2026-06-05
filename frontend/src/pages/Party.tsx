@@ -25,6 +25,7 @@ export function Party() {
   const [searching, setSearching] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [isRejoining, setIsRejoining] = useState(false);
+  const [hasShownShareModal, setHasShownShareModal] = useState(false);
   const [sortBy, setSortBy] = useState<'order' | 'votes'>('order');
 
   if (!joinCode) {
@@ -91,6 +92,9 @@ export function Party() {
       const identity = getIdentity(joinCode);
       
       if (identity) {
+        // Check if this is a very recent identity (likely just created party)
+        const isRecentlyCreated = identity.lastJoined && (Date.now() - identity.lastJoined < 10000); // 10 seconds
+        
         // Try to rejoin with existing identity
         setIsRejoining(true);
         const result = await rejoin(identity.participantId);
@@ -102,8 +106,13 @@ export function Party() {
           setIsRejoining(false);
           // Show share modal for new join after failed rejoin
           setShowShareModal(true);
+        } else if (isRecentlyCreated && !hasShownShareModal) {
+          // If rejoin succeeded but this is a recently created party, show share modal once
+          setIsRejoining(false);
+          setShowShareModal(true);
+          setHasShownShareModal(true);
         }
-        // If rejoin succeeded, we're good to go (no share modal)
+        // If rejoin succeeded and not recently created, we're good to go (no share modal)
       } else {
         // No identity, show name gate
         setShowNameGate(true);
@@ -136,8 +145,9 @@ export function Party() {
       setShowNameGate(false);
       
       // Show share modal only for new joins (not rejoins)
-      if (!isRejoining) {
+      if (!isRejoining && !hasShownShareModal) {
         setShowShareModal(true);
+        setHasShownShareModal(true);
       }
     } catch (err) {
       console.error('Failed to join party:', err);
