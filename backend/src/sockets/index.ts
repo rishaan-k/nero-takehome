@@ -1,21 +1,55 @@
 import { Server, Socket } from "socket.io";
 import { prisma } from "../lib/prisma.js";
 import { getPartyState, addToPresence, removeFromPresence, getPresence } from "../services/partyState.js";
-import { pickWinner, rankSongs } from "../services/ranking.js";
+import { pickWinner } from "../services/ranking.js";
+
+// Songs play in the order they were added
+function getNextUnplayed(songs: { id: string; played: boolean; createdAt: Date }[]) {
+  return songs
+    .filter(s => !s.played)
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0] ?? null;
+}
 
 // In-memory timer tracking
 const timers = new Map<string, NodeJS.Timeout>();
+const timerStartTimes = new Map<string, number>();
+
+// Each iTunes preview is 30 seconds; use this to compute total played duration
+const SONG_DURATION_SECONDS = 30;
+
+function hasExceededMaxDuration(playedCount: number, maxDuration: number | null): boolean {
+  if (!maxDuration) return false;
+  return playedCount * SONG_DURATION_SECONDS >= maxDuration;
+}
 
 function clearTimer(joinCode: string): void {
   const existingTimer = timers.get(joinCode);
   if (existingTimer) {
     clearTimeout(existingTimer);
     timers.delete(joinCode);
+    timerStartTimes.delete(joinCode);
   }
 }
 
-function setAutoAdvanceTimer(joinCode: string): void {
+async function setAutoAdvanceTimer(joinCode: string, remainingTime?: number): Promise<void> {
   clearTimer(joinCode);
+  
+  let timerDelay = 30000; // Default 30 seconds
+  
+  if (remainingTime !== undefined) {
+    timerDelay = remainingTime;
+  } else {
+    // Check if this party has been paused before and calculate remaining time
+    const party = await prisma.party.findUnique({
+      where: { joinCode },
+    });
+    
+    if (party?.currentStartedAt && party.totalPausedTime) {
+      const songStartTime = new Date(party.currentStartedAt).getTime();
+      const elapsed = Date.now() - songStartTime - party.totalPausedTime;
+      timerDelay = Math.max(0, 30000 - elapsed);
+    }
+  }
   
   const timer = setTimeout(async () => {
     try {
@@ -23,9 +57,10 @@ function setAutoAdvanceTimer(joinCode: string): void {
     } catch (error) {
       console.error(`Auto-advance failed for party ${joinCode}:`, error);
     }
-  }, 30000); // 30 seconds
+  }, timerDelay);
   
   timers.set(joinCode, timer);
+  timerStartTimes.set(joinCode, Date.now());
 }
 
 async function autoAdvanceSong(joinCode: string): Promise<void> {
@@ -38,8 +73,13 @@ async function autoAdvanceSong(joinCode: string): Promise<void> {
     },
   });
 
-  if (!party || party.status !== "active") {
+  if (!party || (party.status !== "active" && party.status !== "paused")) {
     clearTimer(joinCode);
+    return;
+  }
+
+  // If party is paused, don't advance - just return
+  if (party.status === "paused") {
     return;
   }
 
@@ -61,14 +101,38 @@ async function autoAdvanceSong(joinCode: string): Promise<void> {
     },
   });
 
-  if (!freshParty || freshParty.status !== "active") {
+  if (!freshParty || (freshParty.status !== "active" && freshParty.status !== "paused")) {
     clearTimer(joinCode);
     return;
   }
 
-  // Get next unplayed song from fresh state
-  const rankedSongs = rankSongs(freshParty.songs);
-  const nextSong = rankedSongs.find(song => !song.played);
+  // Check if maxDuration has been reached
+  const playedCount = freshParty.songs.filter(s => s.played).length;
+  if (hasExceededMaxDuration(playedCount, freshParty.maxDuration)) {
+    clearTimer(joinCode);
+    const winner = pickWinner(freshParty.songs);
+    await prisma.party.update({
+      where: { id: freshParty.id },
+      data: {
+        status: "ended",
+        winnerSongId: winner?.id || null,
+        currentSongId: null,
+        currentStartedAt: null,
+      },
+    });
+    const io = (global as any).socketIO;
+    if (io) {
+      const updatedState = await getPartyState(joinCode);
+      if (updatedState) {
+        io.to(joinCode).emit("party-updated", updatedState);
+        io.to(joinCode).emit("party-ended", { winnerSongId: winner?.id || null });
+      }
+    }
+    return;
+  }
+
+  // Get next unplayed song from fresh state (added order)
+  const nextSong = getNextUnplayed(freshParty.songs);
 
   if (nextSong) {
     // Advance to next song
@@ -81,7 +145,7 @@ async function autoAdvanceSong(joinCode: string): Promise<void> {
     });
     
     // Set timer for next advance
-    setAutoAdvanceTimer(joinCode);
+    await setAutoAdvanceTimer(joinCode);
   } else {
     // No more songs, clear current song
     await prisma.party.update({
@@ -376,9 +440,8 @@ export function setupSocketHandlers(io: Server): void {
           return;
         }
 
-        // Get first unplayed song
-        const rankedSongs = rankSongs(party.songs);
-        const firstSong = rankedSongs.find(song => !song.played);
+        // Get first unplayed song (added order)
+        const firstSong = getNextUnplayed(party.songs);
 
         // Update party status and current song
         const updateData: any = {
@@ -397,7 +460,7 @@ export function setupSocketHandlers(io: Server): void {
 
         // Start auto-advance timer if there's a current song
         if (firstSong) {
-          setAutoAdvanceTimer(joinCode);
+          await setAutoAdvanceTimer(joinCode);
         }
 
         // Broadcast updated party state
@@ -459,9 +522,30 @@ export function setupSocketHandlers(io: Server): void {
           return;
         }
 
-        // Get next unplayed song from fresh state
-        const rankedSongs = rankSongs(freshParty.songs);
-        const nextSong = rankedSongs.find(song => !song.played);
+        // Check if maxDuration has been reached after this skip
+        const playedCount = freshParty.songs.filter(s => s.played).length;
+        if (hasExceededMaxDuration(playedCount, freshParty.maxDuration)) {
+          clearTimer(joinCode);
+          const winner = pickWinner(freshParty.songs);
+          await prisma.party.update({
+            where: { id: freshParty.id },
+            data: {
+              status: "ended",
+              winnerSongId: winner?.id || null,
+              currentSongId: null,
+              currentStartedAt: null,
+            },
+          });
+          const partyState = await getPartyState(joinCode);
+          if (partyState) {
+            io.to(joinCode).emit("party-updated", partyState);
+            io.to(joinCode).emit("party-ended", { winnerSongId: winner?.id || null });
+          }
+          return;
+        }
+
+        // Get next unplayed song from fresh state (added order)
+        const nextSong = getNextUnplayed(freshParty.songs);
 
         const updateData: any = {
           currentStartedAt: new Date(),
@@ -480,7 +564,7 @@ export function setupSocketHandlers(io: Server): void {
 
         // Reset auto-advance timer
         if (nextSong) {
-          setAutoAdvanceTimer(joinCode);
+          await setAutoAdvanceTimer(joinCode);
         } else {
           clearTimer(joinCode);
         }
@@ -493,6 +577,154 @@ export function setupSocketHandlers(io: Server): void {
       } catch (error) {
         console.error("Error in next-song:", error);
         socket.emit("error", { message: "Failed to advance to next song" });
+      }
+    });
+
+    // Previous song (host only) — restores the most recently played song
+    socket.on("prev-song", async (data: { joinCode: string; participantId: string }) => {
+      try {
+        const { joinCode, participantId } = data;
+
+        const party = await prisma.party.findUnique({
+          where: { joinCode },
+          include: { songs: { include: { votes: true } } },
+        });
+
+        if (!party) { socket.emit("error", { message: "Party not found" }); return; }
+        if (party.hostId !== participantId) { socket.emit("error", { message: "Only the host can go back" }); return; }
+
+        // Find the most recently played song (excluding current)
+        const playedSongs = party.songs
+          .filter(s => s.played && s.id !== party.currentSongId)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        const prevSong = playedSongs[0];
+        if (!prevSong) { socket.emit("error", { message: "No previous song" }); return; }
+
+        clearTimer(joinCode);
+
+        // Unmark prev song as played, mark current as unplayed
+        await prisma.$transaction([
+          prisma.song.update({ where: { id: prevSong.id }, data: { played: false } }),
+          ...(party.currentSongId
+            ? [prisma.song.update({ where: { id: party.currentSongId }, data: { played: false } })]
+            : []),
+          prisma.party.update({
+            where: { id: party.id },
+            data: { currentSongId: prevSong.id, currentStartedAt: new Date() },
+          }),
+        ]);
+
+        await setAutoAdvanceTimer(joinCode);
+
+        const partyState = await getPartyState(joinCode);
+        if (partyState) io.to(joinCode).emit("party-updated", partyState);
+      } catch (error) {
+        console.error("Error in prev-song:", error);
+        socket.emit("error", { message: "Failed to go to previous song" });
+      }
+    });
+
+    // Pause party (host only)
+    socket.on("pause-party", async (data: { joinCode: string; participantId: string }) => {
+      try {
+        const { joinCode, participantId } = data;
+
+        // Find party and validate host
+        const party = await prisma.party.findUnique({
+          where: { joinCode },
+        });
+
+        if (!party) {
+          socket.emit("error", { message: "Party not found" });
+          return;
+        }
+
+        if (party.hostId !== participantId) {
+          socket.emit("error", { message: "Only the host can pause the party" });
+          return;
+        }
+
+        if (party.status !== "active") {
+          socket.emit("error", { message: "Party must be active to pause" });
+          return;
+        }
+
+        // Clear auto-advance timer
+        clearTimer(joinCode);
+
+        // Update party status to paused and record pause time
+        await prisma.party.update({
+          where: { id: party.id },
+          data: {
+            status: "paused",
+            pausedAt: new Date(),
+          },
+        });
+
+        // Broadcast updated party state
+        const partyState = await getPartyState(joinCode);
+        if (partyState) {
+          io.to(joinCode).emit("party-updated", partyState);
+        }
+      } catch (error) {
+        console.error("Error in pause-party:", error);
+        socket.emit("error", { message: "Failed to pause party" });
+      }
+    });
+
+    // Resume party (host only)
+    socket.on("resume-party", async (data: { joinCode: string; participantId: string }) => {
+      try {
+        const { joinCode, participantId } = data;
+
+        // Find party and validate host
+        const party = await prisma.party.findUnique({
+          where: { joinCode },
+        });
+
+        if (!party) {
+          socket.emit("error", { message: "Party not found" });
+          return;
+        }
+
+        if (party.hostId !== participantId) {
+          socket.emit("error", { message: "Only the host can resume the party" });
+          return;
+        }
+
+        if (party.status !== "paused") {
+          socket.emit("error", { message: "Party must be paused to resume" });
+          return;
+        }
+
+        // Calculate how long the party was paused and update total paused time
+        const pausedDuration = party.pausedAt ? Date.now() - party.pausedAt.getTime() : 0;
+        const newTotalPausedTime = (party.totalPausedTime || 0) + pausedDuration;
+
+        // Update party status to active, clear pausedAt, and update total paused time
+        await prisma.party.update({
+          where: { id: party.id },
+          data: {
+            status: "active",
+            pausedAt: null,
+            totalPausedTime: newTotalPausedTime,
+          },
+        });
+
+        // Restart auto-advance timer if there's a current song with remaining time
+        if (party.currentSongId) {
+          await setAutoAdvanceTimer(joinCode);
+        }
+
+        // Broadcast updated party state
+        const partyState = await getPartyState(joinCode);
+        if (partyState) {
+          io.to(joinCode).emit("party-updated", partyState);
+        }
+      } catch (error) {
+        console.error("Error in resume-party:", error);
+        socket.emit("error", { message: "Failed to resume party" });
       }
     });
 

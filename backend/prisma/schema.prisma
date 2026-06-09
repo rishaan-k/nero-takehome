@@ -12,12 +12,14 @@ model Party {
   joinCode        String   @unique
   name            String
   hostId          String
-  status          String   @default("lobby") // lobby | active | ended
+  status          String   @default("lobby") // lobby | active | paused | ended
   currentSongId   String?
   currentStartedAt DateTime?
+  pausedAt        DateTime?
+  totalPausedTime Int?     @default(0) // Total paused time in milliseconds
   winnerSongId    String?
   maxSongs        Int?     // Optional limit
-  maxDuration     Int?     // Minutes, optional
+  maxDuration     Int?     // Seconds, optional
   createdAt       DateTime @default(now())
   participants    Participant[]
   songs           Song[]

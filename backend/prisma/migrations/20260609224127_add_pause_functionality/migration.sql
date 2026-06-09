@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Party" ADD COLUMN "pausedAt" DATETIME;
+ALTER TABLE "Party" ADD COLUMN "totalPausedTime" INTEGER DEFAULT 0;

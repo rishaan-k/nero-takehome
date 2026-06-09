@@ -5,13 +5,15 @@ interface UseAudioProps {
   currentStartedAt: string | null;
   previewUrl: string | null;
   isActive: boolean;
+  isPaused?: boolean;
 }
 
-export function useAudio({ currentSongId, currentStartedAt, previewUrl, isActive }: UseAudioProps) {
+export function useAudio({ currentSongId, currentStartedAt, previewUrl, isActive, isPaused = false }: UseAudioProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [localPaused, setLocalPaused] = useState(false);
   const [volume, setVolume] = useState(1);
   const [canAutoplay, setCanAutoplay] = useState(false);
 
@@ -44,8 +46,8 @@ export function useAudio({ currentSongId, currentStartedAt, previewUrl, isActive
 
     let metadataListener: (() => void) | null = null;
 
-    // Only proceed with playback if user has interacted
-    if (hasUserInteracted && currentStartedAt && isActive) {
+    // Only proceed with playback if user has interacted and party is not paused
+    if (hasUserInteracted && currentStartedAt && isActive && !isPaused) {
       metadataListener = () => {
         try {
           // Calculate synced position
@@ -74,7 +76,7 @@ export function useAudio({ currentSongId, currentStartedAt, previewUrl, isActive
         audio.removeEventListener('loadedmetadata', metadataListener);
       }
     };
-  }, [currentSongId, currentStartedAt, previewUrl, hasUserInteracted, isActive, canAutoplay]);
+  }, [currentSongId, currentStartedAt, previewUrl, hasUserInteracted, isActive, isPaused, canAutoplay]);
 
   // Ongoing synchronization for drift correction
   useEffect(() => {
@@ -92,13 +94,16 @@ export function useAudio({ currentSongId, currentStartedAt, previewUrl, isActive
           audio.currentTime = targetPosition;
         }
 
-        // Handle play/pause state
-        if (isActive && audio.paused && canAutoplay) {
+        // Handle play/pause state — respect party pause state and local pause override
+        const shouldPlay = isActive && !isPaused && !localPaused && canAutoplay;
+        const shouldPause = !isActive || isPaused || localPaused;
+        
+        if (shouldPlay && audio.paused) {
           audio.play().catch((err) => {
             console.warn('Audio play failed during sync:', err);
             setCanAutoplay(false);
           });
-        } else if (!isActive && !audio.paused) {
+        } else if (shouldPause && !audio.paused) {
           audio.pause();
         }
       } catch (err) {
@@ -110,7 +115,7 @@ export function useAudio({ currentSongId, currentStartedAt, previewUrl, isActive
     const syncInterval = setInterval(syncAudio, 2000);
 
     return () => clearInterval(syncInterval);
-  }, [currentSongId, currentStartedAt, isActive, hasUserInteracted, canAutoplay, getCurrentPosition]);
+  }, [currentSongId, currentStartedAt, isActive, isPaused, localPaused, hasUserInteracted, canAutoplay, getCurrentPosition]);
 
   // Handle audio events
   useEffect(() => {
@@ -148,6 +153,26 @@ export function useAudio({ currentSongId, currentStartedAt, previewUrl, isActive
     setIsMuted(prev => !prev);
   }, []);
 
+  const togglePause = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
+    setLocalPaused(prev => {
+      const newPausedState = !prev;
+      // Apply the audio change immediately
+      if (newPausedState) {
+        // Pausing
+        audio.pause();
+      } else {
+        // Resuming - only if the party is still active and user has interacted
+        if (hasUserInteracted && canAutoplay) {
+          audio.play().catch(() => {});
+        }
+      }
+      return newPausedState;
+    });
+  }, [hasUserInteracted, canAutoplay]);
+
   const setVolumeLevel = useCallback((newVolume: number) => {
     setVolume(Math.max(0, Math.min(1, newVolume)));
   }, []);
@@ -156,11 +181,13 @@ export function useAudio({ currentSongId, currentStartedAt, previewUrl, isActive
     audioRef,
     hasUserInteracted,
     isPlaying,
+    localPaused,
     isMuted,
     volume,
     canAutoplay,
     handleUserInteraction,
     toggleMute,
+    togglePause,
     setVolumeLevel,
   };
 }

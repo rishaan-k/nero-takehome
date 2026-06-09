@@ -55,6 +55,9 @@ interface UsePartyResult {
   vote: (songId: string, value: number) => void;
   startParty: () => void;
   nextSong: () => void;
+  prevSong: () => void;
+  pauseParty: () => void;
+  resumeParty: () => void;
   endParty: () => void;
   error: string | null;
   winner: string | null;
@@ -186,11 +189,22 @@ export function useParty(joinCode: string): UsePartyResult {
 
   const nextSong = () => {
     if (!socketRef.current || !myParticipantId) return;
-    
-    socketRef.current.emit('next-song', {
-      joinCode,
-      participantId: myParticipantId,
-    });
+    socketRef.current.emit('next-song', { joinCode, participantId: myParticipantId });
+  };
+
+  const prevSong = () => {
+    if (!socketRef.current || !myParticipantId) return;
+    socketRef.current.emit('prev-song', { joinCode, participantId: myParticipantId });
+  };
+
+  const pauseParty = () => {
+    if (!socketRef.current || !myParticipantId) return;
+    socketRef.current.emit('pause-party', { joinCode, participantId: myParticipantId });
+  };
+
+  const resumeParty = () => {
+    if (!socketRef.current || !myParticipantId) return;
+    socketRef.current.emit('resume-party', { joinCode, participantId: myParticipantId });
   };
 
   const endParty = () => {
@@ -213,6 +227,9 @@ export function useParty(joinCode: string): UsePartyResult {
     vote,
     startParty,
     nextSong,
+    prevSong,
+    pauseParty,
+    resumeParty,
     endParty,
     error,
     winner,
